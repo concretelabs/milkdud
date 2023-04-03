@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -238,7 +237,7 @@ func visit(p string, di fs.DirEntry, err error) error {
 	if di.IsDir() {
 		torrentFileList := map[string]int64{}
 
-		directoryFiles, dirErr := ioutil.ReadDir(p)
+		directoryFiles, dirErr := os.ReadDir(p)
 		if dirErr != nil {
 			return fmt.Errorf("error reading directory %s: %w", p, err)
 		}
@@ -252,11 +251,15 @@ func visit(p string, di fs.DirEntry, err error) error {
 		for _, directoryFile := range directoryFiles {
 
 			ext := strings.Replace(path.Ext(directoryFile.Name()), ".", "", -1)
+			info, infoErr := directoryFile.Info()
+			if infoErr != nil {
+				panic(infoErr)
+			}
 
 			switch ext {
 			case "flac":
-				totalBytes = totalBytes + directoryFile.Size()
-				torrentFileList[path.Join(p, directoryFile.Name())] = directoryFile.Size()
+				totalBytes = totalBytes + info.Size()
+				torrentFileList[path.Join(p, directoryFile.Name())] = info.Size()
 				fileCnt = fileCnt + 1
 				flacCnt = flacCnt + 1
 
@@ -267,7 +270,7 @@ func visit(p string, di fs.DirEntry, err error) error {
 				} else {
 					if len(id) > 0 {
 						tocID = id
-						torrentFileList[path.Join(p, directoryFile.Name())] = directoryFile.Size()
+						torrentFileList[path.Join(p, directoryFile.Name())] = info.Size()
 						fileCnt = fileCnt + 1
 					}
 				}
@@ -279,20 +282,20 @@ func visit(p string, di fs.DirEntry, err error) error {
 				} else {
 					if len(id) > 0 {
 						tocID = id
-						torrentFileList[path.Join(p, directoryFile.Name())] = directoryFile.Size()
+						torrentFileList[path.Join(p, directoryFile.Name())] = info.Size()
 						fileCnt = fileCnt + 1
 					}
 				}
 
 			case "jpg":
 				if *importArtPtr {
-					torrentFileList[path.Join(p, directoryFile.Name())] = directoryFile.Size()
+					torrentFileList[path.Join(p, directoryFile.Name())] = info.Size()
 					fileCnt = fileCnt + 1
 				}
 
 			case "jpeg":
 				if *importArtPtr {
-					torrentFileList[path.Join(p, directoryFile.Name())] = directoryFile.Size()
+					torrentFileList[path.Join(p, directoryFile.Name())] = info.Size()
 					fileCnt = fileCnt + 1
 				}
 
