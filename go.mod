@@ -2,7 +2,10 @@ module concretelabs/milkdud
 
 go 1.19
 
-require github.com/anacrolix/torrent v1.49.0
+require (
+	github.com/anacrolix/torrent v1.49.0
+	github.com/mattn/go-sqlite3 v1.14.16
+)
 
 require (
 	github.com/anacrolix/missinggo v1.3.0 // indirect

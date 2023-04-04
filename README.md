@@ -14,7 +14,9 @@ This tool is intended for power users with large libraries who want to share.
 usage: milkdud [options] path
 options:
   -a string
-        comma seperated announce URL(s) (default "http://p4p.arenabg.com:1337/announce,udp://tracker.opentrackr.org:1337/announce,udp://tracker.openbittorrent.com:6969/announce")
+        comma seperated announce URL(s) (default "udp://open.stealth.si:80/announce,udp://tracker.opentrackr.org:1337/announce,udp://tracker.openbittorrent.com:6969/announce")
+  -b string
+        path to beets database file
   -i    include album art (jpeg image files) in torrent file
   -j    json output
   -n string
@@ -28,8 +30,14 @@ Dry run example:
 milkdud /path/to/music
 ```
 
-Example usage to create a torrent using custom announce URL, including album art, where `/path/to/music` is your Beet organized music library location.
+Example usage:
 
+This creates a torrent from a Beets DB:
+```
+milkdud -t -a http://yourtracker.com/announce/?id=secret -b musiclibrary.db
+```
+
+This creates a torrent, and includes album art where `/path/to/music` is your music library location.
 ```
 milkdud -t -a http://yourtracker.com/announce/?id=secret /path/to/music
 ```

@@ -5,11 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"concretelabs/milkdud/beets"
 )
 
 const (
@@ -35,43 +38,28 @@ var (
 	ignoreRipLogsPtr = flag.Bool("r", false, "ignore rip logs")
 	importArtPtr     = flag.Bool("i", false, "include album art (jpeg image files) in torrent file")
 	announcePtr      = flag.String("a", defaultAnnounce, "comma seperated announce URL(s)")
+	beetsDBPathPtr   = flag.String("b", "", "path to beets database file ex: musiclibrary.db")
 )
-
-// Album contains file data about a scanned album folder
-type Album struct {
-	FileCount       int64  `json:"file_count"`
-	FlacCount       int64  `json:"flac_count"`
-	TotalBytes      int64  `json:"total_bytes"`
-	Path            string `json:"path"`
-	TOCID           string `json:"tocid"`
-	CueToolsDbURL   string `json:"cue_tools_lookup_url"`
-	torrentFileList map[string]int64
-}
 
 // Output is the struct for the json output
 type Output struct {
-	Path                  string   `json:"path"`
-	FolderCnt             int64    `json:"folder_count"`
-	AccuripFolderCnt      int64    `json:"accurip_folder_count"`
-	FoldersScanned        int64    `json:"folders_scanned"`
-	TotalFileSize         string   `json:"total_file_size"`
-	TotalFileSizeBytes    int64    `json:"total_file_size_bytes"`
-	TotalFiles            int64    `json:"total_files"`
-	AverageAlbumSize      string   `json:"average_album_size"`
-	AverageAlbumSizeBytes int64    `json:"average_album_size_bytes"`
-	Albums                []Album  `json:"albums"`
-	SkippedFolders        []string `json:"skipped_folders"`
-	MagnetURL             string   `json:"magnet_url,omitempty"`
-	TorrentFileName       string   `json:"torrent_file_name,omitempty"`
+	Path                  string        `json:"path"`
+	FolderCnt             int64         `json:"folder_count"`
+	AccuripFolderCnt      int64         `json:"accurip_folder_count"`
+	FoldersScanned        int64         `json:"folders_scanned"`
+	TotalFileSize         string        `json:"total_file_size"`
+	TotalFileSizeBytes    int64         `json:"total_file_size_bytes"`
+	TotalFiles            int64         `json:"total_files"`
+	AverageAlbumSize      string        `json:"average_album_size"`
+	AverageAlbumSizeBytes int64         `json:"average_album_size_bytes"`
+	Albums                []MusicFolder `json:"albums"`
+	SkippedFolders        []string      `json:"skipped_folders"`
+	MagnetURL             string        `json:"magnet_url,omitempty"`
+	TorrentFileName       string        `json:"torrent_file_name,omitempty"`
 	torrentFileList       map[string]int64
 }
 
-// scannedAlbums accepts all albums read by the scanner
-var scannedAlbums chan Album
-
 func main() {
-	scannedAlbums = make(chan Album)
-
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
 		flag.PrintDefaults()
@@ -87,23 +75,71 @@ func main() {
 	// path should be the last argument
 	scanPath := os.Args[len(os.Args)-1]
 
-	_, err := os.Stat(scanPath)
-	if os.IsNotExist(err) || len(scanPath) == 0 {
-		flag.Usage()
-		fmt.Println("")
-		fmt.Println("invalid path")
-		os.Exit(1)
-	}
+	folders := []MusicFolder{}
 
-	// read the scanned albums into the channel
-	go func() {
-		err := filepath.WalkDir(scanPath, visit)
-		if err != nil {
-			fmt.Println(err)
+	// try and use beets
+	if len(*beetsDBPathPtr) > 0 {
+		if !*jsonOutputPtr {
+			fmt.Println("Using Beets database file", *beetsDBPathPtr)
+		}
+
+		var crawlErr error
+		folders, crawlErr = CrawlBeetsDB(*beetsDBPathPtr)
+		if crawlErr != nil {
+			fmt.Println(crawlErr)
 			os.Exit(1)
 		}
-		close(scannedAlbums)
-	}()
+
+		for folder := range folders {
+			fmt.Println("folder:", folder)
+		}
+
+	} else {
+		if !*jsonOutputPtr {
+			fmt.Println("Beets database not specified, scanning", scanPath)
+		}
+
+		_, err := os.Stat(scanPath)
+		if os.IsNotExist(err) || len(scanPath) == 0 {
+			flag.Usage()
+			fmt.Println("")
+			fmt.Println("invalid path")
+			os.Exit(1)
+		}
+
+		// walk the filesystem
+		walkErr := filepath.WalkDir(scanPath, func(p string, di fs.DirEntry, err error) error {
+
+			if err != nil {
+				return err
+			}
+
+			// skip the rest of the path if we've exceeded the max depth
+			if di.IsDir() && strings.Count(p, string(os.PathSeparator)) > maxDepth {
+				fmt.Println("skipping", p, ", exceeded max depth of", maxDepth, "directories")
+				return fs.SkipDir
+			}
+
+			if di.IsDir() && p != scanPath {
+
+				mf, crawlErr := CrawlFolder(p)
+				if crawlErr != nil {
+					return fmt.Errorf("error crawling folder: %s", crawlErr)
+				}
+
+				folders = append(folders, *mf)
+				log.Println("crawled", mf.Path)
+			}
+
+			return nil
+		})
+
+		if walkErr != nil {
+			fmt.Println(walkErr)
+			os.Exit(1)
+		}
+
+	}
 
 	// output stores the results of the scan
 	output := Output{
@@ -116,7 +152,7 @@ func main() {
 		TotalFiles:            0,
 		AverageAlbumSize:      "0 MB",
 		AverageAlbumSizeBytes: 0,
-		Albums:                []Album{},
+		Albums:                []MusicFolder{},
 		SkippedFolders:        []string{},
 		MagnetURL:             "",
 		TorrentFileName:       "",
@@ -126,7 +162,6 @@ func main() {
 	trackerlist := strings.Split(*announcePtr, ",")
 
 	// create torrent file
-
 	tf, tfErr := createTorrentFile(scanPath, trackerlist)
 	if tfErr != nil {
 		fmt.Println(tfErr)
@@ -137,19 +172,19 @@ func main() {
 		fmt.Println("Scanning", scanPath, "for flac files with Accurip logs...")
 	}
 
-	// read the scanned albums from the channel
-	for album := range scannedAlbums {
+	// loop through the music folders discovered
+	for _, folder := range folders {
 
 		accuripFound := false
-		if len(album.TOCID) > 0 {
+		if len(folder.TocID) > 0 {
 			accuripFound = true
 		}
 
 		if !*jsonOutputPtr {
 			if accuripFound {
-				fmt.Println(album.Path, "-", album.FlacCount, "flac files,", album.FileCount, "total,", byteCountSI(album.TotalBytes), " Accurip confirmed! TOC ID:", album.TOCID)
+				fmt.Println(folder.Path, "-", folder.FlacCnt, "flac files,", folder.FileCnt, "total,", byteCountSI(folder.TotalBytes), " Accurip confirmed! TOC ID:", folder.TocID)
 			} else {
-				fmt.Println(album.Path, "-", album.FlacCount, "flac files,", album.FileCount, "total,", byteCountSI(album.TotalBytes), " no Accurip log found")
+				fmt.Println(folder.Path, "-", folder.FlacCnt, "flac files,", folder.FileCnt, "total,", byteCountSI(folder.TotalBytes), " no Accurip log found")
 			}
 		}
 
@@ -161,21 +196,22 @@ func main() {
 				output.AccuripFolderCnt = output.AccuripFolderCnt + 1
 			}
 			output.FolderCnt = output.FolderCnt + 1
-			output.TotalFileSizeBytes = output.TotalFileSizeBytes + album.TotalBytes
+			output.TotalFileSizeBytes = output.TotalFileSizeBytes + folder.TotalBytes
 			output.TotalFileSize = byteCountSI(output.TotalFileSizeBytes)
-			output.TotalFiles = output.TotalFiles + album.FileCount
-			output.AverageAlbumSizeBytes = output.AverageAlbumSizeBytes + album.TotalBytes
+			output.TotalFiles = output.TotalFiles + folder.FileCnt
+			output.AverageAlbumSizeBytes = output.AverageAlbumSizeBytes + folder.TotalBytes
 			output.AverageAlbumSize = byteCountSI(output.AverageAlbumSizeBytes / output.FolderCnt)
-			output.Albums = append(output.Albums, album)
+			output.Albums = append(output.Albums, folder)
 
-			for file, size := range album.torrentFileList {
-				output.torrentFileList[file] = size
-				tf.AddFile(file, size)
+			for _, file := range folder.Files {
+				itemPath := filepath.Join(folder.Path, file.Name)
+				output.torrentFileList[itemPath] = file.Size
+				tf.AddFile(itemPath, file.Size)
 			}
 
 		} else {
-			if album.Path != scanPath {
-				output.SkippedFolders = append(output.SkippedFolders, album.Path)
+			if folder.Path != scanPath {
+				output.SkippedFolders = append(output.SkippedFolders, folder.Path)
 			}
 		}
 	}
@@ -219,109 +255,6 @@ func main() {
 		fmt.Println(string(b))
 		os.Exit(0)
 	}
-}
-
-// visit is the callback function for filepath.WalkDir
-func visit(p string, di fs.DirEntry, err error) error {
-
-	if err != nil {
-		return err
-	}
-
-	// skip the rest of the path if we've exceeded the max depth
-	if di.IsDir() && strings.Count(p, string(os.PathSeparator)) > maxDepth {
-		fmt.Println("skipping", p, ", exceeded max depth of", maxDepth, "directories")
-		return fs.SkipDir
-	}
-
-	if di.IsDir() {
-		torrentFileList := map[string]int64{}
-
-		directoryFiles, dirErr := os.ReadDir(p)
-		if dirErr != nil {
-			return fmt.Errorf("error reading directory %s: %w", p, err)
-		}
-
-		fileCnt := int64(0)
-		flacCnt := int64(0)
-		totalBytes := int64(0)
-		tocID := ""
-
-		// loop through the files in the directory
-		for _, directoryFile := range directoryFiles {
-
-			ext := strings.Replace(path.Ext(directoryFile.Name()), ".", "", -1)
-			info, infoErr := directoryFile.Info()
-			if infoErr != nil {
-				panic(infoErr)
-			}
-
-			switch ext {
-			case "flac":
-				totalBytes = totalBytes + info.Size()
-				torrentFileList[path.Join(p, directoryFile.Name())] = info.Size()
-				fileCnt = fileCnt + 1
-				flacCnt = flacCnt + 1
-
-			case "accurip":
-				id, accuripErr := detectAccuripInFile(path.Join(p, directoryFile.Name()))
-				if accuripErr != nil {
-					fmt.Println("error reading accurip log file:", directoryFile.Name(), accuripErr)
-				} else {
-					if len(id) > 0 {
-						tocID = id
-						torrentFileList[path.Join(p, directoryFile.Name())] = info.Size()
-						fileCnt = fileCnt + 1
-					}
-				}
-
-			case "log":
-				id, accuripErr := detectAccuripInFile(path.Join(p, directoryFile.Name()))
-				if accuripErr != nil {
-					fmt.Println("error reading accurip log file:", directoryFile.Name(), accuripErr)
-				} else {
-					if len(id) > 0 {
-						tocID = id
-						torrentFileList[path.Join(p, directoryFile.Name())] = info.Size()
-						fileCnt = fileCnt + 1
-					}
-				}
-
-			case "jpg":
-				if *importArtPtr {
-					torrentFileList[path.Join(p, directoryFile.Name())] = info.Size()
-					fileCnt = fileCnt + 1
-				}
-
-			case "jpeg":
-				if *importArtPtr {
-					torrentFileList[path.Join(p, directoryFile.Name())] = info.Size()
-					fileCnt = fileCnt + 1
-				}
-
-			default:
-				// log.Println("ignoring file:", directoryFile.Name())
-			}
-		}
-
-		url := ""
-		if len(tocID) > 0 {
-			url = fmt.Sprintf(cueToolsLookupURL, tocID)
-		}
-
-		scannedAlbums <- Album{
-			FileCount:       fileCnt,
-			FlacCount:       flacCnt,
-			TotalBytes:      totalBytes,
-			Path:            p,
-			TOCID:           tocID,
-			CueToolsDbURL:   url,
-			torrentFileList: torrentFileList,
-		}
-
-	}
-
-	return nil
 }
 
 // byteCountSI returns a human readable byte count
@@ -397,4 +330,176 @@ func detectCUERipperTOCID(str string) (string, error) {
 	}
 
 	return "", nil
+}
+
+// CrawlFolder crawls a folder for flac files and accurip logs
+func CrawlFolder(dir string) (*MusicFolder, error) {
+	if len(dir) == 0 {
+		return nil, fmt.Errorf("no directory specified")
+	}
+
+	// Check if the directory exists
+	info, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("directory does not exist: %s", dir)
+		} else {
+			return nil, fmt.Errorf("error reading directory: %s", dir)
+		}
+	}
+
+	if !info.IsDir() {
+		return nil, fmt.Errorf("the provided path is not a directory: %s", dir)
+	}
+
+	mf := MusicFolder{
+		Path:       dir,
+		HasAccurip: false,
+		TocID:      "",
+		Files:      []MusicFile{},
+		FileCnt:    0,
+		FlacCnt:    0,
+		TotalBytes: 0,
+	}
+
+	// loop through the files in the directory
+	walkErr := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("error walking directory: %s", err)
+		}
+
+		if !d.IsDir() {
+
+			ext := strings.Replace(path.Ext(d.Name()), ".", "", -1)
+			info, infoErr := d.Info()
+			if infoErr != nil {
+				panic(infoErr)
+			}
+
+			switch ext {
+			case "flac":
+				mf.TotalBytes = mf.TotalBytes + info.Size()
+				mf.FileCnt = mf.FileCnt + 1
+				mf.FlacCnt = mf.FlacCnt + 1
+				mf.Files = append(mf.Files, MusicFile{
+					Path:     p,
+					Name:     info.Name(),
+					Size:     info.Size(),
+					FileType: FileTypeFlac,
+				})
+
+			case "accurip":
+				id, accuripErr := detectAccuripInFile(p)
+				if accuripErr != nil {
+					return fmt.Errorf("error reading accurip log file %s: %s", d.Name(), accuripErr)
+				} else {
+					if len(id) > 0 {
+						mf.HasAccurip = true
+						mf.TocID = id
+						mf.TotalBytes = mf.TotalBytes + info.Size()
+						mf.FileCnt = mf.FileCnt + 1
+						mf.Files = append(mf.Files, MusicFile{
+							Path:     p,
+							Name:     info.Name(),
+							Size:     info.Size(),
+							FileType: FileTypeAccurip,
+						})
+					}
+				}
+
+			case "log":
+				id, accuripErr := detectAccuripInFile(p)
+				if accuripErr != nil {
+					return fmt.Errorf("error reading accurip log file %s: %s", d.Name(), accuripErr)
+				} else {
+					if len(id) > 0 {
+						mf.HasAccurip = true
+						mf.TocID = id
+						mf.TotalBytes = mf.TotalBytes + info.Size()
+						mf.FileCnt = mf.FileCnt + 1
+						mf.Files = append(mf.Files, MusicFile{
+							Path:     p,
+							Name:     info.Name(),
+							Size:     info.Size(),
+							FileType: FileTypeLog,
+						})
+					}
+				}
+
+			case "jpg":
+				if *importArtPtr {
+					mf.TotalBytes = mf.TotalBytes + info.Size()
+					mf.FileCnt = mf.FileCnt + 1
+					mf.Files = append(mf.Files, MusicFile{
+						Path:     p,
+						Name:     info.Name(),
+						Size:     info.Size(),
+						FileType: FileTypeJpg,
+					})
+				}
+
+			case "jpeg":
+				if *importArtPtr {
+					mf.TotalBytes = mf.TotalBytes + info.Size()
+					mf.FileCnt = mf.FileCnt + 1
+					mf.Files = append(mf.Files, MusicFile{
+						Path:     p,
+						Name:     info.Name(),
+						Size:     info.Size(),
+						FileType: FileTypeJpeg,
+					})
+				}
+
+			default:
+				// log.Println("ignoring file:", d.Name())
+			}
+		}
+
+		return nil
+	})
+
+	if walkErr != nil {
+		return nil, fmt.Errorf("error walking directory: %s", walkErr)
+	}
+
+	return &mf, nil
+}
+
+// CrawlBeetsDB crawls folders based on albums from the beets database
+func CrawlBeetsDB(beetsDB string) ([]MusicFolder, error) {
+	folders := []MusicFolder{}
+
+	bdb, beetsErr := beets.New(beetsDB)
+	if beetsErr != nil {
+		return nil, beetsErr
+	}
+
+	albums, albumsErr := bdb.GetAllAlbums()
+	if albumsErr != nil {
+		return nil, albumsErr
+	}
+
+	if len(albums) == 0 {
+		return nil, fmt.Errorf("no albums found in beets database")
+	}
+
+	for _, album := range albums {
+		album, albumErr := bdb.GetAlbum(album.ID)
+		if albumErr != nil {
+			panic(albumErr)
+		}
+
+		mf, crawlErr := CrawlFolder(album.Path)
+		if crawlErr != nil {
+			if !*jsonOutputPtr {
+				fmt.Printf("error crawling folder %s", crawlErr)
+			}
+			continue
+		}
+
+		folders = append(folders, *mf)
+	}
+
+	return folders, nil
+
 }
