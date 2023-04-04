@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -75,7 +74,7 @@ func main() {
 	// path should be the last argument
 	scanPath := os.Args[len(os.Args)-1]
 
-	folders := []MusicFolder{}
+	foldersChan := make(chan MusicFolder)
 
 	// try and use beets
 	if len(*beetsDBPathPtr) > 0 {
@@ -83,16 +82,15 @@ func main() {
 			fmt.Println("Using Beets database file", *beetsDBPathPtr)
 		}
 
-		var crawlErr error
-		folders, crawlErr = CrawlBeetsDB(*beetsDBPathPtr)
-		if crawlErr != nil {
-			fmt.Println(crawlErr)
-			os.Exit(1)
-		}
-
-		for folder := range folders {
-			fmt.Println("folder:", folder)
-		}
+		// crawl the beets database
+		go func() {
+			crawlErr := CrawlBeetsDB(*beetsDBPathPtr, foldersChan)
+			if crawlErr != nil {
+				fmt.Println(crawlErr)
+				os.Exit(1)
+			}
+			close(foldersChan)
+		}()
 
 	} else {
 		if !*jsonOutputPtr {
@@ -107,37 +105,39 @@ func main() {
 			os.Exit(1)
 		}
 
-		// walk the filesystem
-		walkErr := filepath.WalkDir(scanPath, func(p string, di fs.DirEntry, err error) error {
+		go func() {
+			// walk the filesystem
+			walkErr := filepath.WalkDir(scanPath, func(p string, di fs.DirEntry, err error) error {
 
-			if err != nil {
-				return err
-			}
-
-			// skip the rest of the path if we've exceeded the max depth
-			if di.IsDir() && strings.Count(p, string(os.PathSeparator)) > maxDepth {
-				fmt.Println("skipping", p, ", exceeded max depth of", maxDepth, "directories")
-				return fs.SkipDir
-			}
-
-			if di.IsDir() && p != scanPath {
-
-				mf, crawlErr := CrawlFolder(p)
-				if crawlErr != nil {
-					return fmt.Errorf("error crawling folder: %s", crawlErr)
+				if err != nil {
+					return err
 				}
 
-				folders = append(folders, *mf)
-				log.Println("crawled", mf.Path)
+				// skip the rest of the path if we've exceeded the max depth
+				if di.IsDir() && strings.Count(p, string(os.PathSeparator)) > maxDepth {
+					fmt.Println("skipping", p, ", exceeded max depth of", maxDepth, "directories")
+					return fs.SkipDir
+				}
+
+				if di.IsDir() && p != scanPath {
+
+					mf, crawlErr := CrawlFolder(p)
+					if crawlErr != nil {
+						return fmt.Errorf("error crawling folder: %s", crawlErr)
+					}
+
+					foldersChan <- *mf
+				}
+
+				return nil
+			})
+
+			if walkErr != nil {
+				fmt.Println(walkErr)
+				os.Exit(1)
 			}
-
-			return nil
-		})
-
-		if walkErr != nil {
-			fmt.Println(walkErr)
-			os.Exit(1)
-		}
+			close(foldersChan)
+		}()
 
 	}
 
@@ -173,26 +173,23 @@ func main() {
 	}
 
 	// loop through the music folders discovered
-	for _, folder := range folders {
-
-		accuripFound := false
-		if len(folder.TocID) > 0 {
-			accuripFound = true
-		}
+	for folder := range foldersChan {
 
 		if !*jsonOutputPtr {
-			if accuripFound {
+			if folder.HasAccurip {
 				fmt.Println(folder.Path, "-", folder.FlacCnt, "flac files,", folder.FileCnt, "total,", byteCountSI(folder.TotalBytes), " Accurip confirmed! TOC ID:", folder.TocID)
 			} else {
-				fmt.Println(folder.Path, "-", folder.FlacCnt, "flac files,", folder.FileCnt, "total,", byteCountSI(folder.TotalBytes), " no Accurip log found")
+				if folder.FlacCnt > 0 {
+					fmt.Println(folder.Path, "-", folder.FlacCnt, "flac files,", folder.FileCnt, "total,", byteCountSI(folder.TotalBytes), " no Accurip log found")
+				}
 			}
 		}
 
 		output.FoldersScanned = output.FoldersScanned + 1
 
 		// we ignore any folders that don't have an accurip log
-		if accuripFound || *ignoreRipLogsPtr {
-			if accuripFound {
+		if folder.HasAccurip || *ignoreRipLogsPtr {
+			if folder.HasAccurip {
 				output.AccuripFolderCnt = output.AccuripFolderCnt + 1
 			}
 			output.FolderCnt = output.FolderCnt + 1
@@ -466,21 +463,20 @@ func CrawlFolder(dir string) (*MusicFolder, error) {
 }
 
 // CrawlBeetsDB crawls folders based on albums from the beets database
-func CrawlBeetsDB(beetsDB string) ([]MusicFolder, error) {
-	folders := []MusicFolder{}
+func CrawlBeetsDB(beetsDB string, folders chan<- MusicFolder) error {
 
 	bdb, beetsErr := beets.New(beetsDB)
 	if beetsErr != nil {
-		return nil, beetsErr
+		return beetsErr
 	}
 
 	albums, albumsErr := bdb.GetAllAlbums()
 	if albumsErr != nil {
-		return nil, albumsErr
+		return albumsErr
 	}
 
 	if len(albums) == 0 {
-		return nil, fmt.Errorf("no albums found in beets database")
+		return fmt.Errorf("no albums found in beets database")
 	}
 
 	for _, album := range albums {
@@ -497,9 +493,9 @@ func CrawlBeetsDB(beetsDB string) ([]MusicFolder, error) {
 			continue
 		}
 
-		folders = append(folders, *mf)
+		folders <- *mf
 	}
 
-	return folders, nil
+	return nil
 
 }
