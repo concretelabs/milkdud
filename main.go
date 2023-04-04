@@ -15,8 +15,6 @@ import (
 )
 
 const (
-	// cueToolsLookupURL is the URL to the CueTools database lookup page
-	cueToolsLookupURL = "http://db.cuetools.net/top.php?tocid=%s"
 
 	// maxDepth is the maximum number of directories to scan before skipping the rest
 	maxDepth = 32
@@ -31,13 +29,13 @@ var (
 )
 
 var (
-	jsonOutputPtr    = flag.Bool("j", false, "json output")
-	createTorrentPtr = flag.Bool("t", false, "create torrent")
-	torrentNamePtr   = flag.String("n", "milkdud", "torrent filename")
-	ignoreRipLogsPtr = flag.Bool("r", false, "ignore rip logs")
-	importArtPtr     = flag.Bool("i", false, "include album art (jpeg image files) in torrent file")
-	announcePtr      = flag.String("a", defaultAnnounce, "comma seperated announce URL(s)")
-	beetsDBPathPtr   = flag.String("b", "", "path to beets database file ex: musiclibrary.db")
+	flagJsonOutput    = flag.Bool("j", false, "json output")
+	flagCreateTorrent = flag.Bool("t", false, "create torrent")
+	flagTorrentName   = flag.String("n", "milkdud", "torrent filename")
+	flagIgnoreRipLogs = flag.Bool("r", false, "ignore rip logs")
+	flagImportArt     = flag.Bool("i", false, "include album art (jpeg image files) in torrent file")
+	flagAnnounce      = flag.String("a", defaultAnnounce, "comma seperated announce URL(s)")
+	FlagBeetsDBPath   = flag.String("b", "", "path to beets database file ex: musiclibrary.db")
 )
 
 // Output is the struct for the json output
@@ -77,14 +75,14 @@ func main() {
 	foldersChan := make(chan MusicFolder)
 
 	// try and use beets
-	if len(*beetsDBPathPtr) > 0 {
-		if !*jsonOutputPtr {
-			fmt.Println("Using Beets database file", *beetsDBPathPtr)
+	if len(*FlagBeetsDBPath) > 0 {
+		if !*flagJsonOutput {
+			fmt.Println("Using Beets database file", *FlagBeetsDBPath)
 		}
 
 		// crawl the beets database
 		go func() {
-			crawlErr := CrawlBeetsDB(*beetsDBPathPtr, foldersChan)
+			crawlErr := CrawlBeetsDB(*FlagBeetsDBPath, foldersChan)
 			if crawlErr != nil {
 				fmt.Println(crawlErr)
 				os.Exit(1)
@@ -93,7 +91,7 @@ func main() {
 		}()
 
 	} else {
-		if !*jsonOutputPtr {
+		if !*flagJsonOutput {
 			fmt.Println("Beets database not specified, scanning", scanPath)
 		}
 
@@ -159,7 +157,7 @@ func main() {
 		torrentFileList:       map[string]int64{},
 	}
 
-	trackerlist := strings.Split(*announcePtr, ",")
+	trackerlist := strings.Split(*flagAnnounce, ",")
 
 	// create torrent file
 	tf, tfErr := createTorrentFile(scanPath, trackerlist)
@@ -168,14 +166,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	if !*jsonOutputPtr {
+	if !*flagJsonOutput {
 		fmt.Println("Scanning", scanPath, "for flac files with Accurip logs...")
 	}
 
 	// loop through the music folders discovered
 	for folder := range foldersChan {
 
-		if !*jsonOutputPtr {
+		if !*flagJsonOutput {
 			if folder.HasAccurip {
 				fmt.Println(folder.Path, "-", folder.FlacCnt, "flac files,", folder.FileCnt, "total,", byteCountSI(folder.TotalBytes), " Accurip confirmed! TOC ID:", folder.TocID)
 			} else {
@@ -188,7 +186,7 @@ func main() {
 		output.FoldersScanned = output.FoldersScanned + 1
 
 		// we ignore any folders that don't have an accurip log
-		if folder.HasAccurip || *ignoreRipLogsPtr {
+		if folder.HasAccurip || *flagIgnoreRipLogs {
 			if folder.HasAccurip {
 				output.AccuripFolderCnt = output.AccuripFolderCnt + 1
 			}
@@ -214,7 +212,7 @@ func main() {
 	}
 
 	// summarize the album size results
-	if !*jsonOutputPtr {
+	if !*flagJsonOutput {
 		fmt.Println("Folders scanned:", output.FoldersScanned)
 		fmt.Println("Folders with Accurip logs found:", output.AccuripFolderCnt)
 		fmt.Println("Number of files:", output.TotalFiles)
@@ -223,10 +221,10 @@ func main() {
 	}
 
 	// create torrent file for all album files
-	if *createTorrentPtr {
-		output.TorrentFileName = fmt.Sprintf("%s.torrent", *torrentNamePtr)
+	if *flagCreateTorrent {
+		output.TorrentFileName = fmt.Sprintf("%s.torrent", *flagTorrentName)
 
-		if !*jsonOutputPtr {
+		if !*flagJsonOutput {
 			fmt.Println("Creating torrent file. Please be patient, it may take a while...")
 		}
 
@@ -240,14 +238,14 @@ func main() {
 		}
 		output.MagnetURL = magnetURL
 
-		if !*jsonOutputPtr {
+		if !*flagJsonOutput {
 			fmt.Println("Magnet URL:", magnetURL)
 			fmt.Println("Torrent created:", output.TorrentFileName)
 		}
 
 	}
 
-	if *jsonOutputPtr {
+	if *flagJsonOutput {
 		b, _ := json.MarshalIndent(output, "", "  ")
 		fmt.Println(string(b))
 		os.Exit(0)
@@ -373,8 +371,8 @@ func CrawlFolder(dir string) (*MusicFolder, error) {
 				panic(infoErr)
 			}
 
-			switch ext {
-			case "flac":
+			switch FileType(ext) {
+			case FileTypeFlac:
 				mf.TotalBytes = mf.TotalBytes + info.Size()
 				mf.FileCnt = mf.FileCnt + 1
 				mf.FlacCnt = mf.FlacCnt + 1
@@ -385,7 +383,7 @@ func CrawlFolder(dir string) (*MusicFolder, error) {
 					FileType: FileTypeFlac,
 				})
 
-			case "accurip":
+			case FileTypeAccurip:
 				id, accuripErr := detectAccuripInFile(p)
 				if accuripErr != nil {
 					return fmt.Errorf("error reading accurip log file %s: %s", d.Name(), accuripErr)
@@ -404,7 +402,7 @@ func CrawlFolder(dir string) (*MusicFolder, error) {
 					}
 				}
 
-			case "log":
+			case FileTypeLog:
 				id, accuripErr := detectAccuripInFile(p)
 				if accuripErr != nil {
 					return fmt.Errorf("error reading accurip log file %s: %s", d.Name(), accuripErr)
@@ -423,20 +421,11 @@ func CrawlFolder(dir string) (*MusicFolder, error) {
 					}
 				}
 
-			case "jpg":
-				if *importArtPtr {
-					mf.TotalBytes = mf.TotalBytes + info.Size()
-					mf.FileCnt = mf.FileCnt + 1
-					mf.Files = append(mf.Files, MusicFile{
-						Path:     p,
-						Name:     info.Name(),
-						Size:     info.Size(),
-						FileType: FileTypeJpg,
-					})
-				}
+			case FileTypeJpg:
+				fallthrough
 
-			case "jpeg":
-				if *importArtPtr {
+			case FileTypeJpeg:
+				if *flagImportArt {
 					mf.TotalBytes = mf.TotalBytes + info.Size()
 					mf.FileCnt = mf.FileCnt + 1
 					mf.Files = append(mf.Files, MusicFile{
@@ -487,8 +476,8 @@ func CrawlBeetsDB(beetsDB string, folders chan<- MusicFolder) error {
 
 		mf, crawlErr := CrawlFolder(album.Path)
 		if crawlErr != nil {
-			if !*jsonOutputPtr {
-				fmt.Printf("error crawling folder %s", crawlErr)
+			if !*flagJsonOutput {
+				fmt.Println("Error crawling", crawlErr)
 			}
 			continue
 		}

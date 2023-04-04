@@ -29,7 +29,7 @@ type Album struct {
 	Title     string  `json:"title"`
 	Artist    string  `json:"artist"`
 	ArtistID  string  `json:"mb_artist_id"` // MusicBrainz ID
-	AlbumID   string  `json:"album_id"`     // MusicBrainz ID
+	AlbumID   string  `json:"mb_album_id"`  // MusicBrainz ID
 	ItemCount int     `json:"item_count"`
 	Tracks    []Track `json:"tracks"`
 }

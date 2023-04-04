@@ -1,17 +1,22 @@
 package main
 
-type FileType int
+import "fmt"
+
+type FileType string
+
+// cueToolsLookupURL is the URL to the CueTools database lookup page
+const cueToolsLookupURL = "http://db.cuetools.net/top.php?tocid=%s"
 
 const (
-	FileTypeFlac FileType = iota
-	FileTypeLog
-	FileTypeAccurip
-	FileTypeJpg
-	FileTypeJpeg
+	FileTypeFlac    FileType = "flac"
+	FileTypeLog     FileType = "log"
+	FileTypeAccurip FileType = "accurip"
+	FileTypeJpg     FileType = "jpg"
+	FileTypeJpeg    FileType = "jpeg"
 )
 
-func (f FileType) String() string {
-	return [...]string{"flac", "log", "accurip", "jpg", "jpeg"}[f]
+func (ft FileType) String() string {
+	return string(ft)
 }
 
 type MusicLibrary struct {
@@ -37,4 +42,9 @@ type MusicFile struct {
 	Name     string
 	Size     int64
 	FileType FileType
+}
+
+// ToCID returns the CueTools database lookup URL for the given TOC ID
+func (mf MusicFolder) ToCID() string {
+	return fmt.Sprintf(cueToolsLookupURL, mf.TocID)
 }
