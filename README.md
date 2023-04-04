@@ -37,9 +37,9 @@ This creates a torrent from a Beets DB:
 milkdud -t -a http://yourtracker.com/announce/?id=secret -b musiclibrary.db
 ```
 
-This creates a torrent, and includes album art where `/path/to/music` is your music library location.
+This creates a torrent without a Beets DB by scanning folders located in `/path/to/music`
 ```
-milkdud -t -a http://yourtracker.com/announce/?id=secret /path/to/music
+milkdud -t http://yourtracker.com/announce/?id=secret /path/to/music
 ```
 
 Notes:
