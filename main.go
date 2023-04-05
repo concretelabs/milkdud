@@ -203,13 +203,13 @@ func main() {
 		fmt.Println("Flac files:", stats.TotalFlacFiles)
 		fmt.Println("Total file size:", stats.TotalFileSize, fmt.Sprintf("(%d bytes)", stats.TotalFileSizeBytes))
 		fmt.Println("Average album size:", stats.AverageAlbumSize, fmt.Sprintf("(%d bytes)", stats.AverageAlbumSizeBytes))
-		if *FlagDetailedStats {
-			if len(detailedStats.Errors) > 0 {
-				fmt.Println("Errors:")
-				for _, err := range detailedStats.Errors {
-					fmt.Println(" ", err)
-				}
+		if len(detailedStats.Errors) > 0 {
+			fmt.Println("Errors:")
+			for _, err := range detailedStats.Errors {
+				fmt.Println(" ", err)
 			}
+		}
+		if *FlagDetailedStats {
 			fmt.Println("Scanned albums:")
 			for _, mf := range detailedStats.Albums {
 				fmt.Println(" ", mf.Path, mf.HasAccurip, mf.FlacCnt, mf.FileCnt, byteCountSI(mf.TotalBytes))
@@ -459,7 +459,6 @@ func crawlFolder(dir string) (*MusicFolder, error) {
 
 // crawlBeetsDB crawls folders based on albums from the beets database
 func crawlBeetsDB(beetsDB string, scanResults chan<- scanResult) error {
-
 	bdb, beetsErr := beets.New(beetsDB)
 	if beetsErr != nil {
 		return beetsErr
@@ -481,16 +480,9 @@ func crawlBeetsDB(beetsDB string, scanResults chan<- scanResult) error {
 		}
 
 		mf, crawlErr := crawlFolder(album.Path)
-		if crawlErr != nil {
-			scanResults <- scanResult{
-				nil,
-				crawlErr,
-			}
-		} else {
-			scanResults <- scanResult{
-				mf,
-				nil,
-			}
+		scanResults <- scanResult{
+			mf,
+			crawlErr,
 		}
 
 	}
@@ -507,7 +499,6 @@ func crawlFs(scanPath string, scanResults chan<- scanResult) error {
 	}
 
 	return filepath.WalkDir(scanPath, func(p string, di fs.DirEntry, err error) error {
-
 		if err != nil {
 			return err
 		}
@@ -519,18 +510,10 @@ func crawlFs(scanPath string, scanResults chan<- scanResult) error {
 		}
 
 		if di.IsDir() && p != scanPath {
-
 			mf, crawlErr := crawlFolder(p)
-			if crawlErr != nil {
-				scanResults <- scanResult{
-					nil,
-					crawlErr,
-				}
-			} else {
-				scanResults <- scanResult{
-					mf,
-					nil,
-				}
+			scanResults <- scanResult{
+				mf,
+				crawlErr,
 			}
 		}
 
