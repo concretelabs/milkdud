@@ -40,6 +40,7 @@ var (
 	flagAnnounce      = flag.String("a", defaultAnnounce, "comma seperated announce URL(s)")
 	FlagBeetsDBPath   = flag.String("b", "", "path to beets database file ex: musiclibrary.db")
 	FlagDetailedStats = flag.Bool("d", false, "show detailed stats")
+	FlagTorrentTag    = flag.String("g", "", "comma seperated tags for torrent comment ex: foo,bar")
 )
 
 type Stats struct {
@@ -232,7 +233,7 @@ func main() {
 		} else {
 
 			stats.TorrentFileName = fmt.Sprintf("%s.torrent", *flagTorrentName)
-			magnetURL, torrentErr := createTorrent(torrentFsRoot, scanPath, stats.TorrentFileName, stats.FolderCnt, fd)
+			magnetURL, torrentErr := createTorrent(torrentFsRoot, scanPath, stats.TorrentFileName, stats.AccuripFolderCnt, fd)
 			if torrentErr != nil {
 				fmt.Println(torrentErr)
 				os.Exit(1)
@@ -525,7 +526,7 @@ func crawlFs(scanPath string, scanResults chan<- scanResult) error {
 }
 
 // createTorrent creates a torrent file
-func createTorrent(fsRoot, scanPath, fileName string, folderCnt int64, fd []fileData) (string, error) {
+func createTorrent(fsRoot, scanPath, fileName string, accuruipFolderCnt int64, fd []fileData) (string, error) {
 	if !*flagJsonOutput {
 		fmt.Println("Creating torrent file. Please be patient, it may take a while...")
 	}
@@ -543,7 +544,10 @@ func createTorrent(fsRoot, scanPath, fileName string, folderCnt int64, fd []file
 		tf.AddFile(itemPath, f.size)
 	}
 
-	comment := fmt.Sprintf("This torrent was created by milkdud. %d Accurip albums", folderCnt)
+	comment := fmt.Sprintf("This torrent was created by milkdud. Contains %d Accurip albums.", accuruipFolderCnt)
+	if len(*FlagTorrentTag) > 0 {
+		comment = fmt.Sprintf("%s (%s)", comment, *FlagTorrentTag)
+	}
 
 	magnetURL, torrentErr := tf.Create(fsRoot, fileName, comment)
 	if torrentErr != nil {

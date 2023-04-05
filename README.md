@@ -18,6 +18,8 @@ options:
   -b string
         path to beets database file ex: musiclibrary.db
   -d    show detailed stats
+  -g string
+        comma seperated tags for torrent comment ex: foo,bar
   -i    include album art (jpeg image files) in torrent file
   -j    json stats
   -n string
