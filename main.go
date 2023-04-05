@@ -21,6 +21,9 @@ const (
 
 	// default trackers via https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt
 	defaultAnnounce = "udp://open.stealth.si:80/announce,udp://tracker.opentrackr.org:1337/announce,udp://tracker.openbittorrent.com:6969/announce"
+
+	// root folder for all files in the torrent
+	torrentFsRoot = "music"
 )
 
 var (
@@ -229,7 +232,7 @@ func main() {
 		} else {
 
 			stats.TorrentFileName = fmt.Sprintf("%s.torrent", *flagTorrentName)
-			magnetURL, torrentErr := createTorrent(scanPath, stats.TorrentFileName, stats.FolderCnt, fd)
+			magnetURL, torrentErr := createTorrent(torrentFsRoot, scanPath, stats.TorrentFileName, stats.FolderCnt, fd)
 			if torrentErr != nil {
 				fmt.Println(torrentErr)
 				os.Exit(1)
@@ -522,7 +525,7 @@ func crawlFs(scanPath string, scanResults chan<- scanResult) error {
 }
 
 // createTorrent creates a torrent file
-func createTorrent(scanPath, fileName string, folderCnt int64, fd []fileData) (string, error) {
+func createTorrent(fsRoot, scanPath, fileName string, folderCnt int64, fd []fileData) (string, error) {
 	if !*flagJsonOutput {
 		fmt.Println("Creating torrent file. Please be patient, it may take a while...")
 	}
@@ -542,7 +545,7 @@ func createTorrent(scanPath, fileName string, folderCnt int64, fd []fileData) (s
 
 	comment := fmt.Sprintf("This torrent was created by milkdud. %d Accurip albums", folderCnt)
 
-	magnetURL, torrentErr := tf.Create(fileName, comment)
+	magnetURL, torrentErr := tf.Create(fsRoot, fileName, comment)
 	if torrentErr != nil {
 		return "", torrentErr
 	}

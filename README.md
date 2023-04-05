@@ -43,9 +43,10 @@ This creates a torrent without a Beets DB by scanning folders located in `/path/
 milkdud -t http://yourtracker.com/announce/?id=secret /path/to/music
 ```
 
-Notes:
-* generating a torrent can take a very long time depending on how large your music library is and the speed of your hardware.
+Torrent Notes:
 * all torrents are private by default
+* generating a torrent can take a very long time depending on how large your music library is and the speed of your hardware.
+* the torrent root folder name is always "music"
 
 ## Building
 

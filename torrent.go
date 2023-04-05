@@ -13,7 +13,7 @@ import (
 
 type TorrentFile interface {
 	AddFile(path string, size int64)
-	Create(outFile, comment string) (string, error)
+	Create(torrentFsRoot, outFile, comment string) (string, error)
 }
 
 type torrentFile struct {
@@ -35,7 +35,7 @@ func (tf *torrentFile) AddFile(path string, size int64) {
 }
 
 // Create creates a torrent file and returns the magnet link
-func (tf *torrentFile) Create(outFile, comment string) (string, error) {
+func (tf *torrentFile) Create(torrentFsRoot, outFile, comment string) (string, error) {
 
 	mi := metainfo.MetaInfo{
 		AnnounceList: [][]string{},
@@ -63,7 +63,7 @@ func (tf *torrentFile) Create(outFile, comment string) (string, error) {
 	}
 
 	info.Name = func() string {
-		return filepath.Base(tf.rootPath)
+		return torrentFsRoot
 	}()
 
 	info.Files = nil
