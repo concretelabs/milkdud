@@ -20,28 +20,28 @@ func (ft FileType) String() string {
 }
 
 type MusicLibrary struct {
-	Path       string
-	FileCnt    int64
-	FlacCnt    int64
-	TotalBytes int64
-	Folders    []MusicFolder
+	Path       string        `json:"path"`
+	FileCnt    int64         `json:"file_count"`
+	FlacCnt    int64         `json:"flac_count"`
+	TotalBytes int64         `json:"total_bytes"`
+	Folders    []MusicFolder `json:"folders"`
 }
 
 type MusicFolder struct {
-	Path       string
-	HasAccurip bool
-	TocID      string
-	Files      []MusicFile
-	FileCnt    int64
-	FlacCnt    int64
-	TotalBytes int64
+	Path       string      `json:"path"`
+	HasAccurip bool        `json:"has_accurip"`
+	TocID      string      `json:"toc_id"`
+	Files      []MusicFile `json:"files"`
+	FileCnt    int64       `json:"file_count"`
+	FlacCnt    int64       `json:"flac_count"`
+	TotalBytes int64       `json:"total_bytes"`
 }
 
 type MusicFile struct {
-	Path     string
-	Name     string
-	Size     int64
-	FileType FileType
+	Path     string   `json:"path"`
+	Name     string   `json:"name"`
+	Size     int64    `json:"size"`
+	FileType FileType `json:"file_type"`
 }
 
 // ToCID returns the CueTools database lookup URL for the given TOC ID
