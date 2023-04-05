@@ -16,9 +16,10 @@ options:
   -a string
         comma seperated announce URL(s) (default "udp://open.stealth.si:80/announce,udp://tracker.opentrackr.org:1337/announce,udp://tracker.openbittorrent.com:6969/announce")
   -b string
-        path to beets database file
+        path to beets database file ex: musiclibrary.db
+  -d    show detailed stats
   -i    include album art (jpeg image files) in torrent file
-  -j    json output
+  -j    json stats
   -n string
         torrent filename (default "milkdud")
   -r    ignore rip logs
