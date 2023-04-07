@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"concretelabs/milkdud/beets"
+	"concretelabs/milkdud/torrent"
 )
 
 const (
@@ -21,9 +22,6 @@ const (
 
 	// default trackers via https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt
 	defaultAnnounce = "udp://open.stealth.si:80/announce,udp://tracker.opentrackr.org:1337/announce,udp://tracker.openbittorrent.com:6969/announce"
-
-	// root folder for all files in the torrent
-	torrentFsRoot = "music"
 )
 
 var (
@@ -233,12 +231,34 @@ func main() {
 		} else {
 
 			stats.TorrentFileName = fmt.Sprintf("%s.torrent", *flagTorrentName)
-			magnetURL, torrentErr := createTorrent(torrentFsRoot, scanPath, stats.TorrentFileName, stats.AccuripFolderCnt, fd)
-			if torrentErr != nil {
-				fmt.Println(torrentErr)
+
+			comment := fmt.Sprintf("%d accurip albums", stats.AccuripFolderCnt)
+			if len(*FlagTorrentTag) > 0 {
+				comment = fmt.Sprintf("%s (%s)", comment, *FlagTorrentTag)
+			}
+
+			announce := []string{}
+			if len(*flagAnnounce) > 0 {
+				announce = strings.Split(*flagAnnounce, ",")
+			}
+
+			tf, tfErr := torrent.New(scanPath, comment, announce, !*flagJsonOutput)
+			if tfErr != nil {
+				fmt.Println(tfErr)
 				os.Exit(1)
 			}
-			stats.MagnetURL = magnetURL
+
+			for _, file := range fd {
+				tf.AddFile(filepath.Join(file.path, file.name), file.size)
+			}
+
+			createErr := tf.Create(stats.TorrentFileName)
+			if createErr != nil {
+				fmt.Println(createErr)
+				os.Exit(1)
+			}
+
+			stats.MagnetURL = tf.MagnetURL()
 
 			if !*flagJsonOutput {
 				fmt.Println("Magnet URL:", stats.MagnetURL)
@@ -523,36 +543,4 @@ func crawlFs(scanPath string, scanResults chan<- scanResult) error {
 
 		return nil
 	})
-}
-
-// createTorrent creates a torrent file
-func createTorrent(fsRoot, scanPath, fileName string, accuruipFolderCnt int64, fd []fileData) (string, error) {
-	if !*flagJsonOutput {
-		fmt.Println("Creating torrent file. Please be patient, it may take a while...")
-	}
-
-	trackerlist := strings.Split(*flagAnnounce, ",")
-
-	// create torrent file
-	tf, err := createTorrentFile(scanPath, trackerlist)
-	if err != nil {
-		return "", err
-	}
-
-	for _, f := range fd {
-		itemPath := filepath.Join(f.path, f.name)
-		tf.AddFile(itemPath, f.size)
-	}
-
-	comment := fmt.Sprintf("This torrent was created by milkdud. Contains %d Accurip albums.", accuruipFolderCnt)
-	if len(*FlagTorrentTag) > 0 {
-		comment = fmt.Sprintf("%s (%s)", comment, *FlagTorrentTag)
-	}
-
-	magnetURL, torrentErr := tf.Create(fsRoot, fileName, comment)
-	if torrentErr != nil {
-		return "", torrentErr
-	}
-
-	return magnetURL, nil
 }
